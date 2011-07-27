@@ -1,0 +1,5 @@
+#PREFIX: http://d-nb.info/gnd/
+#TARGETPREFIX: http://gso.gbv.de/DB=2.1/REL?PPN=
+#MESSAGE: {hits} Titel im Verbundkatalog des GBV
+
+118540475|31|079339735

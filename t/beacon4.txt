@@ -1,0 +1,14 @@
+#FORMAT: PND-BEACON
+#PREFIX: http://d-nb.info/gnd/
+#TARGET: http://daia.hebis.de/resolver/wikimedia/pndresolver/{ID}
+
+#DESCRIPTION: Titel von und über Personen im HeBIS-Katalog
+#INSTITUTION: HeBIS-Verbundzentrale
+#ISIL: DE-603
+
+#FEED: http://daia.hebis.de/resolver/wikimedia/pndresolver/beacon.txt
+#TIMESTAMP: 2011-03-05T09:03:09
+
+118540440|6
+118540475|31
+

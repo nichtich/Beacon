@@ -1,0 +1,147 @@
+# NAME
+
+Beacon - A simple link aggregation file format
+
+# VERSION
+
+version 0.30
+
+# DESCRIPTION
+
+This module implements a validating [BEACON format](#pod_BEACON format) parser and serializer.
+In short, a __Beacon__ is a set of links, together with some meta fields. Each
+link at least consists of source URI (also referred to as `id`) and a
+`target` URI. In addition it can have a `label` (also refered to as message)
+and a `description` (also used as property).
+
+# METHODS
+
+## new ( { $field => $value } )
+
+Creates a new, empty Beacon object, optionally with some given meta fields.
+
+## parse
+
+Returns the Beacon object, so you can say:
+
+  my $b = Beacon->new->parse( $file );
+
+## expand ( $id [, $label [, $message [, $target ] ] ] )
+
+Expands a raw link, based on this BEACON's meta fields.
+
+## condense ( $id [, $label [, $message [, $target ] ] ] )
+
+Returns a condense representation of a link in BEACON format, to be used for
+serialization.
+
+## count
+
+Returns the number of stored links.
+
+## count_ids
+
+Returns the number of stored link ids. If this number is equal to the number of
+stored links, each id has exactely one link, so you can use links as mapping.
+
+## get ( $id )
+
+Returns a list of raw stored links for some id.
+
+## get_expanded ( $id )
+
+Returns a list of expanded stored links for some id.
+
+## meta ( [ $field [ => $value ] )
+
+Get and or set one or more meta fields. Field names are converted to uppercase.
+
+# BEACON format
+
+A BEACON file is a UTF-8 encoded text file that contains a set of lines. It
+begins with a set of unordered meta field lines, followed by a list of link
+lines. Leading and trailing whitespace is removed from all lines, meta field
+names, meta field values, and link parts (id, label, description, target)
+before further processing. All lines before the first line not starting with a
+hash symbol (`#`) are treated as meta field lines and all remaining lines as
+link lines. Empty lines are ignored, but they can indicate the end of meta
+field lines.
+
+## meta field lines
+
+Meta field lines start with a hash symbol (`#`), followed by a meta field, a
+colon (`:`), and a meta field value. The following meta field with field name
+`FORMAT` and field value `BEACON` should always be included in a BEACON file:
+
+    #FORMAT: BEACON
+
+Meta field names should be given in uppercase and must be converted to uppercase. 
+A name must start with a letter (A-Z), optionally followed by any combination of
+letters (A-Z), digits (0-9), and underscore (_). Meta field values can be any
+Unicode strings, but whitespace is trimmed and line breaks are not possible.
+
+There are some meta fields with predefined meaning:
+
+- FORMAT
+- VERSION
+- TARGET
+- PREFIX
+- MESSAGE
+- ONEMESSAGE
+- SOMEMESSAGE
+- PROPERTY
+- NAME
+- DESCRIPTION
+- CONTACT
+- INSTITUTION
+- FEED
+- TIMESTAMP
+- REVISIT
+- EXAMPLES
+- COUNT
+
+## link lines
+
+A link line contains a list of one or more values, separated by a vertical bar
+(|).  Only the first four values are respected. Missing values, if there are
+less then four, are equal to the empty string (and to pure whitespace strings,
+because all values are trimmed). The four values make the id, label,
+description, and target of a &raw link;. Raw link can be expanded based on the
+meta fields. Link lines which do not result in valid links after expansion,
+must be ignored or result in an error.
+
+## link expansion
+
+PREFIX is prepended to the raw id. TARGET is used as template to construct a
+new target, if the raw target is empty or if the TARGET template contains the
+template parameter TARGET. MESSAGE, ONEMESSAGE, and SOMEMESSAGE, NAME, and
+INSTITUTION are used to construct or modify a link label.
+
+# UTILITY FUNCTIONS
+
+## _is_uri
+
+Check whether a given string is an URI. This function is based on code of
+[Data::Validate::URI](http://search.cpan.org/perldoc?Data::Validate::URI), adopted for performance.
+
+# SEE ALSO
+
+See [http://meta.wikimedia.org/wiki/BEACON](http://meta.wikimedia.org/wiki/BEACON) for an English introduction to
+BEACON.  This module is a rewrite of [Data::Beacon](http://search.cpan.org/perldoc?Data::Beacon) which got bloated because
+it tried to combine too many things.
+
+# ACKNOWLEDGEMENTS
+
+This module contains code snippets from Thomas Berger. BEACON was created
+together with Mathias Schindler and Christian Thiele.
+
+# AUTHOR
+
+Jakob Voß <voss@gbv.de>
+
+# COPYRIGHT AND LICENSE
+
+This software is copyright (c) 2011 by Jakob Voß.
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
