@@ -3,21 +3,15 @@ use warnings;
 package Beacon;
 #ABSTRACT: A simple link aggregation file format
 
+use 5.010; # Perl 5.10 features
 use Time::Piece;
 use URI::Escape;
-use URI::Template; # TODO
 use Scalar::Util qw(blessed);
 use URI;
 use Carp;
 
 our %META_FIELDS = (
-    TARGET      => sub {
-        my $t = shift;
-        #$t .= '{ID}' unless $t =~ /{ID}/;
-        #'URI::Template', # TODO
-        #return URI::Template->new($t);
-        return $t;
-    },
+    TARGET      => sub { shift }, # TODO: validate template?
     PREFIX      => sub { $_ = URI->new( shift )->canonical; $_ =~ /[^:+]:/ ? $_ : undef },
     PROPERTY    => sub { URI->new( shift )->canonical; },
     FORMAT      => sub { $_ = shift; s/^[A-Z]+-(BEACON)$/$1/; $_; },
@@ -38,22 +32,22 @@ our %META_FIELDS = (
     ISIL        => sub { shift },
     UPDATE      => sub { shift },
 #   REMARK, ALTTARGET, IMGTARGET ??
+# TYPE?
 );
 
-our $FIELD_NAME = qr/^[A-Z][A-Z0-9_]*$/;
+our $FIELD_NAME = qr/^[A-Z][A-Z0-9_]*$/i;
 
 sub new {
     my ($class, %attr) = @_;
+
     my $self = bless {
         meta   => { FORMAT => 'BEACON' },
         links  => { },
         count  => 0,
     }, $class;
 
-    my @fields = grep { $_ =~ $FIELD_NAME } keys %attr;
-    if (@fields) {
-        $self->meta( map { $_ => $attr{$_} } @fields );
-    }
+	# optional meta fields
+    $self->meta( map { $_ => $attr{$_} } grep($FIELD_NAME,keys %attr)) if %attr;
 
     $self;
 }
@@ -61,17 +55,15 @@ sub new {
 sub parse {
     my $self = shift;
     my %attr = @_ % 2 ? ( from =>  @_ ) : @_;
-    my $from = $attr{from};
+    my $from = $attr{from} // croak 'No input specified to parse from';
 
-    $self->{meta} = { };
+#    $self->{meta} = { };
     $self->{count} = 0;
     $self->{links} = { };
 
     # read from different kind of input (scalar, code, STDIN, file)
     my $readline = sub { };
-    if (not defined $from) {
-        croak 'No input specified to parse from';
-    } elsif (ref $from) {
+    if (ref $from) {
         if (ref $from eq 'SCALAR') {
             my $lines = [ split("\n",$$from) ];
             $readline = sub { shift @$lines };
@@ -127,55 +119,54 @@ sub parselink {
     my @fields = split(/\s*\|\s*/, $line);
     return if !@fields or $fields[0] eq '';
 
-    @fields[1..3] = map { defined $_ ? $_ : '' } @fields[1..3];
+    @fields[1..3] = map { $_ // '' } @fields[1..3];
 
-    # TODO: check link
-    #my $msg = $self->_checklink( @fields );
-    #if ( $msg ) {
-    #    $self->_handle_error( $msg ); 
-    #    return;
+	# check link
+	my @exp = $self->expand( @fields );
+    unless( _is_uri($exp[0]) && _is_uri($exp[3])) {
+		# handle error (TODO: test this)
+		carp "Not a valid link in line $linecount: $line => " . join('|',@exp);
+	}
    
     push @{ $self->{links}->{$fields[0]} }, [ @fields[1..3] ];
     $self->{count}++; 
 }
 
 sub expand {
-    my ($self, @link) = @_;
+    my $self = shift;
+	my @link = map { $_[$_] // '' } (0..3);
 
-    foreach (0..3) {
-        $link[$_] = '' unless defined $link[$_];
-    }
+	my %vars = (
+		id 	  		=> $link[0],
+		label 		=> $link[1],
+		description => $link[2],
+		target 		=> $link[3],
+	);
+	$vars{hits} = $link[1] if $link[1] =~ /^\d*$/; # number or empty
 
     my $id    = $link[0];
     my $label = $link[1];
 
     # TODO: document this expansion
-    if ( $link[1] =~ /^[0-9]*$/ ) { # if label is number (of hits) or empty
-        my $descr = $link[2];
+    if ( defined $vars{hits} ) {
 
         # TODO: handle zero hits
-        my $msg = $self->{meta}->{$label eq '1' ? 'ONEMESSAGE' : 'SOMEMESSAGE'}
+        my $msg = $self->{meta}->{ $vars{label} eq '1' ? 'ONEMESSAGE' : 'SOMEMESSAGE' }
                 || $self->{meta}->{'MESSAGE'};
 
         if ( defined $msg ) {
-            _str_replace( $msg, '{id}', $id ); # unexpanded
-            _str_replace( $msg, '{hits}', $link[1] );
-            _str_replace( $msg, '{label}', $link[1] );
-            _str_replace( $msg, '{description}', $link[2] ); 
-            _str_replace( $msg, '{target}', $link[3] ); # unexpanded
+		 	expand_template( $msg, \%vars );
         } else {
-            $msg = $self->{meta}->{'NAME'} || $self->{meta}->{'INSTITUTION'};
+            $msg = $self->{meta}->{'NAME'} || $self->{meta}->{'INSTITUTION'} || '';
         }
-        if ( defined $msg && $msg ne '' ) {
+        if ( $msg ne '' ) {
             # if ( $link[1] == "") $descr = $label;
             $link[1] = $msg;
             $link[1] =~ s/^\s+|\s+$//g;
             $link[1] =~ s/\s+/ /g;
         }
     } else {
-        _str_replace( $link[1], '{id}', $id ); # unexpanded
-        _str_replace( $link[1], '{description}', $link[2] );
-        _str_replace( $link[1], '{target}', $link[3] ); # unexpanded
+		expand_template( $link[1], \%vars );
         # trim label, because it may have changed
         $link[1] =~ s/^\s+|\s+$//g;
         $link[1] =~ s/\s+/ /g;
@@ -186,24 +177,16 @@ sub expand {
     $link[0] = $prefix . $link[0] if defined $prefix;
     $link[0] = '' unless _is_uri($link[0]);
 
-    # expand target
+	return ('','','','') if $link[0] eq '';
+
+    # expand target. TODO: uri_escape?
     my $target = $self->{meta}->{TARGET};
     if (defined $target and ($link[3] eq '' or $target =~ /{TARGET}/)) {
-         _str_replace( $target, '{ID}' => $id );
-         _str_replace( $target, '{TARGET}' => $link[3] );
+		 expand_template( $target, \%vars );
          $link[3] = $target;
-    #$target->process_to_string( ID => $link[0], LABEL => $label, TARGET => $link[3] );
-    #        my $source = $link[0];
-    #        my $label = $link[1];
-    #        $link[3] =~ s/{ID}/$source/g;
-    #        $link[3] =~ s/{LABEL}/uri_escape($label)/eg;
     }
 
-    return $link[0] ne '' ? @link : ('','','','');
-}
-
-sub _str_replace {
-    $_[0] =~ s/\Q$_[1]\E/$_[2]/g;
+    return @link;
 }
 
 sub condense {
@@ -272,11 +255,8 @@ sub meta {
 
         if ( $META_FIELDS{$field} ) {
             my $normalized = $META_FIELDS{$field}->( $value );
-            if (defined $normalized) {
-                $value = $normalized;
-            } else {
-               croak "Invalid $field field: $value";
-            }
+            $normalized // croak "Invalid $field field: $value";
+            $value = $normalized;
         }
 
         $self->{meta}->{$field} = $value;
@@ -287,6 +267,10 @@ sub meta {
 
 
 ### helper methods
+
+sub expand_template {
+	$_[0] =~ s/{([a-z]+)}/$_[1]->{lc($1)}/gei;
+}
 
 sub _timestamp {
     my $t = shift or return;
@@ -430,13 +414,18 @@ Creates a new, empty Beacon object, optionally with some given meta fields.
 
 =method parse
 
+Parses BEACON format. By default adds it to the current Beacon object.
 Returns the Beacon object, so you can say:
 
   my $b = Beacon->new->parse( $file );
 
+=method parselink ( $line [, $line_number ] )
+
+Parses a single link line. You should not need to directly call this method.
+
 =method expand ( $id [, $label [, $message [, $target ] ] ] )
 
-Expands a raw link, based on this BEACON's meta fields.
+Expands a raw link, based on this Beacon's meta fields.
 
 =method condense ( $id [, $label [, $message [, $target ] ] ] )
 
@@ -454,15 +443,15 @@ stored links, each id has exactely one link, so you can use links as mapping.
 
 =method get ( $id )
 
-Returns a list of raw stored links for some id.
+Returns one (in scalar context) or a list of raw stored links for some id.
 
 =method get_expanded ( $id )
 
-Returns a list of expanded stored links for some id.
+Returns one (in scalar context) or a list of expanded stored links for some id.
 
-=method meta ( [ $field [ => $value ] )
+=method meta ( $field | { $field => $value } )
 
-Get and or set one or more meta fields. Field names are converted to uppercase.
+Get and/or set one or more meta fields. Field names are converted to uppercase.
 
 =head1 UTILITY FUNCTIONS
 

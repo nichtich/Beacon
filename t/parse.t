@@ -50,6 +50,10 @@ dies_ok { $b->parse("~") } 'parse non-existing file';
 #is( $b->errors, 1, 'cannot parse a hashref' );
 
 # string parsing
+#$b->parse( \"x:from|x:to\n\n|comment" );
+$b->meta( target => '{TARGET}{LABEL}' );
+ok( $b->meta('target' ) , 'has target' );
+
 $b->parse( \"x:from|x:to\n\n|comment" );
 is( $b->count, 1, 'parse from string' );
 
